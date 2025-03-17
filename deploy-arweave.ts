@@ -96,15 +96,11 @@ async function processFile(
 
   // Check if file should be deployed
   if (!data.deploy_arweave || data.deploy_arweave !== true) {
-    console.log(`Skipping ${filePath}, deploy_arweave not set to true`);
     return null;
   }
 
   // Check if already deployed
   if (data.arweave_id) {
-    console.log(
-      `Skipping ${filePath}, already has arweave_id=${data.arweave_id}`
-    );
     return null;
   }
 
@@ -113,8 +109,6 @@ async function processFile(
   const description = data.description || "";
   const author = data.author || "";
 
-  // Deploy to Arweave
-  console.log(`Deploying ${filePath}...`);
   const result = await deployContent(
     walletPath,
     content,
@@ -157,6 +151,8 @@ async function main() {
       console.error(`Error processing ${filePath}:`, error.message);
     }
   }
+
+  console.log("::set-output name=deployments::" + JSON.stringify(results));
 }
 
 main().catch((error) => {
