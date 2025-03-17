@@ -5,7 +5,9 @@ on:
     branches:
       - master # Set to your default branch
     paths:
-      - "**/*.md" # Only trigger on markdown file changes
+      - ".gitmodules" # Only trigger on markdown file changes
+      - "vault/**"
+  workflow_dispatch:
 
 jobs:
   deploy:
