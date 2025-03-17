@@ -91,19 +91,34 @@ jobs:
         run: |
           # Get the submodule path from the deployment output
           DEPLOYMENTS='${{ steps.deploy.outputs.deployments }}'
-          SUBMODULE_PATHS=$(echo $DEPLOYMENTS | jq -r '.[] | .file' | xargs dirname | sort | uniq | grep -v "^\.$" || echo "")
+          echo "Deployments JSON: $DEPLOYMENTS"
 
-          # Extract unique submodule root paths
-          for FILE_PATH in $SUBMODULE_PATHS; do
+          # Extract the specific files that were deployed
+          DEPLOYED_FILES=$(echo $DEPLOYMENTS | jq -r '.[] | .file')
+          echo "Deployed files: $DEPLOYED_FILES"
+
+          # Process each deployed file
+          for FILE in $DEPLOYED_FILES; do
             # Extract root submodule directory
-            SUBMODULE_ROOT=$(echo $FILE_PATH | cut -d'/' -f1)
+            SUBMODULE_ROOT=$(echo $FILE | cut -d'/' -f1)
             
             # If it's a valid submodule
             if [ -d "$SUBMODULE_ROOT" ] && [ -d "$SUBMODULE_ROOT/.git" ]; then
-              echo "Committing changes in submodule: $SUBMODULE_ROOT"
+              echo "Processing submodule: $SUBMODULE_ROOT for file: $FILE"
               cd $SUBMODULE_ROOT
-              git add -A
-              git commit -m "Add Arweave IDs to deployed markdown files" || echo "No changes to commit in submodule"
+              
+              # Check file status
+              RELATIVE_PATH=$(echo $FILE | cut -d'/' -f2-)
+              echo "File status for $RELATIVE_PATH:"
+              git status --porcelain "$RELATIVE_PATH" || echo "File not found in submodule"
+              
+              # Explicitly add the specific file
+              git add "$RELATIVE_PATH"
+              
+              # Commit if there are changes
+              git diff --staged --quiet || git commit -m "Add Arweave ID to $RELATIVE_PATH"
+              
+              # Push changes
               git push
               cd ..
             fi
