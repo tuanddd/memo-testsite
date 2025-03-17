@@ -25,44 +25,21 @@ jobs:
           # Store the list of changed markdown files
           CHANGED_FILES=""
 
-          # Function to get changed files in a repository or submodule
-          get_changed_files() {
-            local DIR=$1
-            local PREFIX=$2
-            
-            pushd "$DIR" > /dev/null
-            
-            # Get changes in this repository/submodule
-            local CHANGES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | grep '\.md$' || echo "")
-            
-            # Prefix each change with the path
-            for FILE in $CHANGES; do
-              if [ -n "$PREFIX" ]; then
-                CHANGED_FILES="$CHANGED_FILES $PREFIX/$FILE"
-              else
-                CHANGED_FILES="$CHANGED_FILES $FILE"
-              fi
-            done
-            
-            # Get list of submodules in this repository/submodule
-            local SUBS=$(git submodule status | awk '{print $2}')
-            
-            # Process each submodule recursively
-            for SUB in $SUBS; do
-              if [ -d "$SUB" ]; then
-                if [ -n "$PREFIX" ]; then
-                  get_changed_files "$SUB" "$PREFIX/$SUB"
-                else
-                  get_changed_files "$SUB" "$SUB"
-                fi
-              fi
-            done
-            
-            popd > /dev/null
-          }
+          # Get changes in the main repository
+          MAIN_CHANGES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | grep '\.md$' || echo "")
+          CHANGED_FILES="$CHANGED_FILES $MAIN_CHANGES"
 
-          # Start with the main repository (no prefix)
-          get_changed_files "." ""
+          # Get changes in all submodules recursively
+          git submodule foreach --recursive '
+            CHANGES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | grep "\.md$" || echo "")
+            if [ -n "$CHANGES" ]; then
+              for FILE in $CHANGES; do
+                echo "$path/$FILE"
+              done
+            fi
+          ' | while read -r FILE; do
+            CHANGED_FILES="$CHANGED_FILES $FILE"
+          done
 
           # Trim and format the output
           CHANGED_FILES=$(echo "$CHANGED_FILES" | xargs)
@@ -96,50 +73,16 @@ jobs:
       - name: Commit changes in submodules recursively
         if: steps.deploy.outputs.deployments != ''
         run: |
-          # Create a recursive script to handle nested submodules
-          cat > commit-recursive.sh << 'EOF'
-          #!/bin/bash
-
-          process_repo() {
-            local current_path=$1
-            echo "Processing repository: $current_path"
-            
-            # Navigate to the repo
-            cd "$current_path" || return
-            
-            # Get list of submodules
-            local submodules=$(git submodule status | awk '{print $2}')
-            
-            # Process each submodule first (depth-first)
-            for submodule in $submodules; do
-              if [ -d "$submodule" ]; then
-                process_repo "$current_path/$submodule"
-              fi
-            done
-            
-            # After processing all nested submodules, commit changes in current repo
-            echo "Committing changes in: $current_path"
+          # Commit changes in each submodule recursively
+          git submodule foreach --recursive '
             git add -A
             if ! git diff --staged --quiet; then
               git commit -m "Add Arweave IDs to deployed markdown files"
-              git push || echo "Failed to push in $current_path, continuing..."
+              git push || echo "Failed to push in $path, continuing..."
             else
-              echo "No changes to commit in $current_path"
+              echo "No changes to commit in $path"
             fi
-            
-            # Return to the parent directory
-            cd - > /dev/null
-          }
-
-          # Start with the specified path (current directory if not specified)
-          process_repo "${1:-.}"
-          EOF
-
-          # Make the script executable
-          chmod +x commit-recursive.sh
-
-          # Process each immediate submodule
-          git submodule foreach '../commit-recursive.sh "$path"'
+          '
 
       - name: Commit changes in master repository
         if: steps.deploy.outputs.deployments != ''
