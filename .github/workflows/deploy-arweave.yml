@@ -16,39 +16,53 @@ jobs:
       - name: Update submodules
         run: |
           git submodule update --init --recursive
-          git submodule foreach git checkout master || true
-          git submodule foreach git pull origin master || true
+          git submodule foreach --recursive 'git checkout master || git checkout main || true'
+          git submodule foreach --recursive 'git pull origin $(git rev-parse --abbrev-ref HEAD) || true'
 
       - name: Get changed files
         id: changed-files
         run: |
-          # Store the last commit hash before submodule update
-          BEFORE_UPDATE=$(git rev-parse HEAD)
-
-          # Get the list of submodules
-          SUBMODULES=$(git submodule status | awk '{print $2}')
-
-          # Initialize empty array for changed files
+          # Store the list of changed markdown files
           CHANGED_FILES=""
 
-          # First check main repository changes
-          MAIN_CHANGES=$(git diff --name-only HEAD~1 HEAD | grep '\.md$' || echo "")
-          CHANGED_FILES="$CHANGED_FILES $MAIN_CHANGES"
-
-          # Then check each submodule for changes
-          for SUBMODULE in $SUBMODULES; do
-            if [ -d "$SUBMODULE" ]; then
-              cd $SUBMODULE
-              SUB_CHANGES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | grep '\.md$' || echo "")
-              if [ -n "$SUB_CHANGES" ]; then
-                # Prefix each change with the submodule path
-                for FILE in $SUB_CHANGES; do
-                  CHANGED_FILES="$CHANGED_FILES $SUBMODULE/$FILE"
-                done
+          # Function to get changed files in a repository or submodule
+          get_changed_files() {
+            local DIR=$1
+            local PREFIX=$2
+            
+            pushd "$DIR" > /dev/null
+            
+            # Get changes in this repository/submodule
+            local CHANGES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | grep '\.md$' || echo "")
+            
+            # Prefix each change with the path
+            for FILE in $CHANGES; do
+              if [ -n "$PREFIX" ]; then
+                CHANGED_FILES="$CHANGED_FILES $PREFIX/$FILE"
+              else
+                CHANGED_FILES="$CHANGED_FILES $FILE"
               fi
-              cd - > /dev/null
-            fi
-          done
+            done
+            
+            # Get list of submodules in this repository/submodule
+            local SUBS=$(git submodule status | awk '{print $2}')
+            
+            # Process each submodule recursively
+            for SUB in $SUBS; do
+              if [ -d "$SUB" ]; then
+                if [ -n "$PREFIX" ]; then
+                  get_changed_files "$SUB" "$PREFIX/$SUB"
+                else
+                  get_changed_files "$SUB" "$SUB"
+                fi
+              fi
+            done
+            
+            popd > /dev/null
+          }
+
+          # Start with the main repository (no prefix)
+          get_changed_files "." ""
 
           # Trim and format the output
           CHANGED_FILES=$(echo "$CHANGED_FILES" | xargs)
@@ -79,28 +93,44 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
 
-      - name: Commit changes in submodules
+      - name: Commit changes in submodules recursively
         if: steps.deploy.outputs.deployments != ''
         run: |
-          # Add and commit all changes in all submodules
-          git submodule foreach 'git add -A && git diff --staged --quiet || git commit -m "Add Arweave IDs to deployed markdown files"'
+          # Function to commit changes in a submodule and its nested submodules
+          commit_submodule_changes() {
+            local DIR=$1
+            
+            echo "Checking for changes in $DIR"
+            cd "$DIR" || return
+            
+            # First, handle nested submodules recursively
+            git submodule foreach 'commit_submodule_changes "$path"'
+            
+            # Then commit changes in this submodule
+            git add -A
+            git diff --staged --quiet || (git commit -m "Add Arweave IDs to deployed markdown files" && git push)
+            
+            # Return to parent directory
+            cd - > /dev/null
+          }
 
-          # Push changes in all submodules
-          git submodule foreach 'git push || echo "No changes to push in this submodule"'
+          # Export the function so it can be used in submodule foreach
+          export -f commit_submodule_changes
+
+          # Start with immediate submodules
+          git submodule foreach 'commit_submodule_changes "$path"'
 
       - name: Commit changes in master repository
         if: steps.deploy.outputs.deployments != ''
         run: |
           git add -A
-          git commit -m "Add Arweave IDs to deployed markdown files" || echo "No changes to commit in master repo"
-          git push
+          git diff --staged --quiet || (git commit -m "Add Arweave IDs to deployed markdown files" && git push)
 
-      - name: Update submodule reference
+      - name: Update submodule references
         if: steps.deploy.outputs.deployments != ''
         run: |
           git add -A
-          git commit -m "Update submodule reference" || echo "No submodule changes to commit"
-          git push
+          git diff --staged --quiet || (git commit -m "Update submodule references" && git push)
 
       - name: Display deployment results
         if: steps.deploy.outputs.deployments != ''
