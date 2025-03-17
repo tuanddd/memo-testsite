@@ -1,0 +1,99 @@
+name: Deploy Markdown to Arweave
+
+on:
+  push:
+    branches:
+      - main # Set to your default branch
+    paths:
+      - "**/*.md" # Only trigger on markdown file changes
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository with submodules
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Fetch all history to determine changed files
+          submodules: "recursive" # Checkout submodules recursively
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update submodules
+        run: |
+          git submodule update --init --recursive
+          git submodule foreach git checkout main || true
+          git submodule foreach git pull origin main || true
+
+      - name: Get changed files
+        id: changed-files
+        run: |
+          # Get list of added/modified markdown files, including in submodules
+          CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.event.after }} | grep '\.md$' || echo "")
+          echo "files=$CHANGED_FILES" >> $GITHUB_OUTPUT
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+
+      - name: Install dependencies
+        run: npm install arweave gray-matter crypto js-yaml
+
+      - name: Create wallet file
+        run: |
+          echo '${{ secrets.ARWEAVE_WALLET_JSON }}' > wallet.json
+          chmod 600 wallet.json
+
+      - name: Process markdown files
+        id: deploy
+        if: steps.changed-files.outputs.files != ''
+        run: |
+          node --input-type=module deploy-arweave.js ${{ steps.changed-files.outputs.files }} >> $GITHUB_OUTPUT
+
+      - name: Configure Git for submodule
+        run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+
+      - name: Commit changes in main repository
+        if: steps.deploy.outputs.deployments != ''
+        run: |
+          git add -A
+          git commit -m "Add Arweave IDs to deployed markdown files" || echo "No changes to commit in main repo"
+          git push
+
+      - name: Commit changes in submodule
+        if: steps.deploy.outputs.deployments != ''
+        run: |
+          # Get the submodule path from the deployment output
+          DEPLOYMENTS='${{ steps.deploy.outputs.deployments }}'
+          SUBMODULE_PATHS=$(echo $DEPLOYMENTS | jq -r '.[] | .file' | xargs dirname | sort | uniq | grep -v "^\.$" || echo "")
+
+          # Extract unique submodule root paths
+          for FILE_PATH in $SUBMODULE_PATHS; do
+            # Extract root submodule directory
+            SUBMODULE_ROOT=$(echo $FILE_PATH | cut -d'/' -f1)
+            
+            # If it's a valid submodule
+            if [ -d "$SUBMODULE_ROOT" ] && [ -d "$SUBMODULE_ROOT/.git" ]; then
+              echo "Committing changes in submodule: $SUBMODULE_ROOT"
+              cd $SUBMODULE_ROOT
+              git add -A
+              git commit -m "Add Arweave IDs to deployed markdown files" || echo "No changes to commit in submodule"
+              git push
+              cd ..
+            fi
+          done
+
+      - name: Update submodule reference
+        if: steps.deploy.outputs.deployments != ''
+        run: |
+          git add -A
+          git commit -m "Update submodule reference" || echo "No submodule changes to commit"
+          git push
+
+      - name: Display deployment results
+        if: steps.deploy.outputs.deployments != ''
+        run: |
+          echo "Deployed files to Arweave:"
+          echo '${{ steps.deploy.outputs.deployments }}' | jq -r '.[]| "File: \(.file)\nArweave ID: \(.id)\nURL: https://\(.id).arweave.net\n"'
