@@ -96,14 +96,14 @@ async function processFile(
 
   // Check if file should be deployed
   if (!data.deploy_arweave || data.deploy_arweave !== true) {
-    console.log(`Skipping ${filePath} - deploy_arweave not set to true`);
+    console.log(`Skipping ${filePath}, deploy_arweave not set to true`);
     return null;
   }
 
   // Check if already deployed
   if (data.arweave_id) {
     console.log(
-      `Skipping ${filePath} - already has arweave_id: ${data.arweave_id}`
+      `Skipping ${filePath}, already has arweave_id=${data.arweave_id}`
     );
     return null;
   }
