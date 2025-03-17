@@ -86,43 +86,14 @@ jobs:
           git commit -m "Add Arweave IDs to deployed markdown files" || echo "No changes to commit in master repo"
           git push
 
-      - name: Commit changes in submodule
+      - name: Commit changes in submodules
         if: steps.deploy.outputs.deployments != ''
         run: |
-          # Get the submodule path from the deployment output
-          DEPLOYMENTS='${{ steps.deploy.outputs.deployments }}'
-          echo "Deployments JSON: $DEPLOYMENTS"
+          # Add and commit all changes in all submodules
+          git submodule foreach 'git add -A && git diff --staged --quiet || git commit -m "Add Arweave IDs to deployed markdown files"'
 
-          # Extract the specific files that were deployed
-          DEPLOYED_FILES=$(echo $DEPLOYMENTS | jq -r '.[] | .file')
-          echo "Deployed files: $DEPLOYED_FILES"
-
-          # Process each deployed file
-          for FILE in $DEPLOYED_FILES; do
-            # Extract root submodule directory
-            SUBMODULE_ROOT=$(echo $FILE | cut -d'/' -f1)
-            
-            # If it's a valid submodule
-            if [ -d "$SUBMODULE_ROOT" ] && [ -d "$SUBMODULE_ROOT/.git" ]; then
-              echo "Processing submodule: $SUBMODULE_ROOT for file: $FILE"
-              cd $SUBMODULE_ROOT
-              
-              # Check file status
-              RELATIVE_PATH=$(echo $FILE | cut -d'/' -f2-)
-              echo "File status for $RELATIVE_PATH:"
-              git status --porcelain "$RELATIVE_PATH" || echo "File not found in submodule"
-              
-              # Explicitly add the specific file
-              git add "$RELATIVE_PATH"
-              
-              # Commit if there are changes
-              git diff --staged --quiet || git commit -m "Add Arweave ID to $RELATIVE_PATH"
-              
-              # Push changes
-              git push
-              cd ..
-            fi
-          done
+          # Push changes in all submodules
+          git submodule foreach 'git push || echo "No changes to push in this submodule"'
 
       - name: Update submodule reference
         if: steps.deploy.outputs.deployments != ''
