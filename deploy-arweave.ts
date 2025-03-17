@@ -62,7 +62,7 @@ async function deployContent(
     transaction.addTag("Content-Type", "application/json");
 
     // Add additional tags
-    transaction.addTag("Author", author || "");
+    transaction.addTag("author", author || "");
     transaction.addTag("digest", digest);
 
     // Sign transaction
@@ -157,9 +157,6 @@ async function main() {
       console.error(`Error processing ${filePath}:`, error.message);
     }
   }
-
-  // Output the results for GitHub Actions
-  console.log("::set-output name=deployments::" + JSON.stringify(results));
 }
 
 main().catch((error) => {
