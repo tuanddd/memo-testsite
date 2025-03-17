@@ -11,7 +11,7 @@ jobs:
         with:
           fetch-depth: 0 # Fetch all history to determine changed files
           submodules: "recursive" # Checkout submodules recursively
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.MEMO_PAT }}
 
       - name: Update submodules
         run: |
