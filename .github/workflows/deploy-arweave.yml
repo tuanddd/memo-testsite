@@ -96,29 +96,50 @@ jobs:
       - name: Commit changes in submodules recursively
         if: steps.deploy.outputs.deployments != ''
         run: |
-          # Function to commit changes in a submodule and its nested submodules
-          commit_submodule_changes() {
-            local DIR=$1
+          # Create a recursive script to handle nested submodules
+          cat > commit-recursive.sh << 'EOF'
+          #!/bin/bash
+
+          process_repo() {
+            local current_path=$1
+            echo "Processing repository: $current_path"
             
-            echo "Checking for changes in $DIR"
-            cd "$DIR" || return
+            # Navigate to the repo
+            cd "$current_path" || return
             
-            # First, handle nested submodules recursively
-            git submodule foreach 'commit_submodule_changes "$path"'
+            # Get list of submodules
+            local submodules=$(git submodule status | awk '{print $2}')
             
-            # Then commit changes in this submodule
+            # Process each submodule first (depth-first)
+            for submodule in $submodules; do
+              if [ -d "$submodule" ]; then
+                process_repo "$current_path/$submodule"
+              fi
+            done
+            
+            # After processing all nested submodules, commit changes in current repo
+            echo "Committing changes in: $current_path"
             git add -A
-            git diff --staged --quiet || (git commit -m "Add Arweave IDs to deployed markdown files" && git push)
+            if ! git diff --staged --quiet; then
+              git commit -m "Add Arweave IDs to deployed markdown files"
+              git push || echo "Failed to push in $current_path, continuing..."
+            else
+              echo "No changes to commit in $current_path"
+            fi
             
-            # Return to parent directory
+            # Return to the parent directory
             cd - > /dev/null
           }
 
-          # Export the function so it can be used in submodule foreach
-          export -f commit_submodule_changes
+          # Start with the specified path (current directory if not specified)
+          process_repo "${1:-.}"
+          EOF
 
-          # Start with immediate submodules
-          git submodule foreach 'commit_submodule_changes "$path"'
+          # Make the script executable
+          chmod +x commit-recursive.sh
+
+          # Process each immediate submodule
+          git submodule foreach '../commit-recursive.sh "$path"'
 
       - name: Commit changes in master repository
         if: steps.deploy.outputs.deployments != ''
