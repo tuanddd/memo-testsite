@@ -22,8 +22,37 @@ jobs:
       - name: Get changed files
         id: changed-files
         run: |
-          # Get list of added/modified markdown files, including in submodules
-          CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.event.after }} | grep '\.md$' || echo "")
+          # Store the last commit hash before submodule update
+          BEFORE_UPDATE=$(git rev-parse HEAD)
+
+          # Get the list of submodules
+          SUBMODULES=$(git submodule status | awk '{print $2}')
+
+          # Initialize empty array for changed files
+          CHANGED_FILES=""
+
+          # First check main repository changes
+          MAIN_CHANGES=$(git diff --name-only HEAD~1 HEAD | grep '\.md$' || echo "")
+          CHANGED_FILES="$CHANGED_FILES $MAIN_CHANGES"
+
+          # Then check each submodule for changes
+          for SUBMODULE in $SUBMODULES; do
+            if [ -d "$SUBMODULE" ]; then
+              cd $SUBMODULE
+              SUB_CHANGES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | grep '\.md$' || echo "")
+              if [ -n "$SUB_CHANGES" ]; then
+                # Prefix each change with the submodule path
+                for FILE in $SUB_CHANGES; do
+                  CHANGED_FILES="$CHANGED_FILES $SUBMODULE/$FILE"
+                done
+              fi
+              cd - > /dev/null
+            fi
+          done
+
+          # Trim and format the output
+          CHANGED_FILES=$(echo "$CHANGED_FILES" | xargs)
+          echo "Found changed markdown files: $CHANGED_FILES"
           echo "files=$CHANGED_FILES" >> $GITHUB_OUTPUT
 
       - name: Setup Node.js
