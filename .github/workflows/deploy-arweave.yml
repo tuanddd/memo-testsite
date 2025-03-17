@@ -58,10 +58,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: "18"
+          node-version: "20"
 
       - name: Install dependencies
-        run: npm install arweave gray-matter crypto js-yaml
+        run: npm install arweave gray-matter crypto js-yaml tsx
 
       - name: Create wallet file
         run: |
@@ -72,7 +72,7 @@ jobs:
         id: deploy
         if: steps.changed-files.outputs.files != ''
         run: |
-          node --input-type=module deploy-arweave.js ${{ steps.changed-files.outputs.files }} >> $GITHUB_OUTPUT
+          npx tsx deploy-arweave.ts ${{ steps.changed-files.outputs.files }} >> $GITHUB_OUTPUT
 
       - name: Configure Git for submodule
         run: |
