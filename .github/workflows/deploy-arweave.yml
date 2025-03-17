@@ -25,21 +25,44 @@ jobs:
           # Store the list of changed markdown files
           CHANGED_FILES=""
 
-          # Get changes in the main repository
-          MAIN_CHANGES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | grep '\.md$' || echo "")
-          CHANGED_FILES="$CHANGED_FILES $MAIN_CHANGES"
+          # Function to get changed files in a repository or submodule
+          get_changed_files() {
+            local DIR=$1
+            local PREFIX=$2
+            
+            pushd "$DIR" > /dev/null
+            
+            # Get changes in this repository/submodule
+            local CHANGES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | grep '\.md$' || echo "")
+            
+            # Prefix each change with the path
+            for FILE in $CHANGES; do
+              if [ -n "$PREFIX" ]; then
+                CHANGED_FILES="$CHANGED_FILES $PREFIX/$FILE"
+              else
+                CHANGED_FILES="$CHANGED_FILES $FILE"
+              fi
+            done
+            
+            # Get list of submodules in this repository/submodule
+            local SUBS=$(git submodule status | awk '{print $2}')
+            
+            # Process each submodule recursively
+            for SUB in $SUBS; do
+              if [ -d "$SUB" ]; then
+                if [ -n "$PREFIX" ]; then
+                  get_changed_files "$SUB" "$PREFIX/$SUB"
+                else
+                  get_changed_files "$SUB" "$SUB"
+                fi
+              fi
+            done
+            
+            popd > /dev/null
+          }
 
-          # Get changes in all submodules recursively
-          git submodule foreach --recursive '
-            CHANGES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | grep "\.md$" || echo "")
-            if [ -n "$CHANGES" ]; then
-              for FILE in $CHANGES; do
-                echo "$path/$FILE"
-              done
-            fi
-          ' | while read -r FILE; do
-            CHANGED_FILES="$CHANGED_FILES $FILE"
-          done
+          # Start with the main repository (no prefix)
+          get_changed_files "." ""
 
           # Trim and format the output
           CHANGED_FILES=$(echo "$CHANGED_FILES" | xargs)
